@@ -4,86 +4,113 @@ import org.chiclepad.backend.entity.DiaryPage;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 
+import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 
 public class DiaryPageDao extends EntryDao {
-   protected DiaryPageDao(JdbcTemplate jdbcTemplate) {
-      super(jdbcTemplate);
-   }
 
-   //CREATE
-   public DiaryPage create(int userId, LocalDateTime created, String text, LocalDate recordedDay)
-         throws DuplicateKeyException {
+    private final String CREATE_DIARY_PAGE_SQL = "INSERT INTO diary_page (entry_id, text, recorded_day) " +
+            "VALUES (?, ?, ?) " +
+            "RETURNING id;";
 
-      // First it is needed to create an entry and take its id
-      int entryId = super.create(userId, created);
+    private final String GET_DIARY_PAGE_SQL = "SELECT * " +
+            "FROM diary_page " +
+            "INNER JOIN entry ON entry_id = entry.id " +
+            "WHERE diary_page.id = ? ;";
 
-      String sqlInsert = "INSERT INTO diary_page(id, entry_id, text, recorded_day)"
-            + " VALUES(DEFAULT ,?,?,?) RETURNING id ;";
+    private final String GET_ALL_DIARY_PAGE_SQL = "SELECT * " +
+            "FROM diary_page " +
+            "INNER JOIN entry ON diary_page.entry_id = entry.id " +
+            "LEFT OUTER JOIN deleted_entry ON deleted_entry.entry_id = entry.id " +
+            "WHERE deleted_entry.deleted_time IS NULL AND user_id = ? " +
+            "ORDER BY diary_page.recorded_day DESC;";
 
-      Object id = jdbcTemplate
-            .queryForObject(sqlInsert, new Object[] { entryId, text, recordedDay },
-                  Integer.class);
+    private final String GET_ALL_WITH_DELETED_DIARY_PAGE_SQL = "SELECT * " +
+            "FROM diary_page " +
+            "INNER JOIN entry ON entry_id = entry.id " +
+            "WHERE user_id = ? " +
+            "ORDER BY diary_page.recorded_day DESC;";
 
-      return id == null ? null : new DiaryPage(entryId, created, (int) id, text, recordedDay);
-   }
+    private final String UPDATE_DIARY_PAGE_SQL = "UPDATE diary_page " +
+            "SET text = ?, recorded_day = ? " +
+            "WHERE id = ?;";
 
-   //READ
-   public DiaryPage get(int id) throws EmptyResultDataAccessException {
-      String sqlGet = "SELECT * FROM diary_page"
-            + " INNER JOIN  entry ON diary_page.entry_id = entry.id"
-            + " WHERE diaryPage.id = " + id + ";";
+    private final String DELETE_ALL_DIARY_PAGE_SQL = "DELETE FROM diary_page;";
 
-      return jdbcTemplate.queryForObject(sqlGet,
-            (RowMapper<DiaryPage>) (ResultSet resultSet, int rowNum) -> {
-               return getDiaryPage(resultSet);
-            }
-      );
-   }
+    DiaryPageDao(JdbcTemplate jdbcTemplate) {
+        super(jdbcTemplate);
+    }
 
-   private DiaryPage getDiaryPage(final ResultSet resultSet) throws SQLException {
-      int diaryPageId = resultSet.getInt("id");
-      int entryId = resultSet.getInt("entry_id");
-      LocalDateTime created = (LocalDateTime) resultSet.getObject("created");
+    public DiaryPage create(int userId, String text, LocalDate recordedDay) throws DuplicateKeyException {
+        int entryId = super.create(userId);
 
-      String text = resultSet.getString("text");
-      LocalDate recordedDay = resultSet.getDate("recorded_day").toLocalDate();
+        int id = jdbcTemplate.queryForObject(
+                CREATE_DIARY_PAGE_SQL,
+                new Object[]{entryId, text, Date.valueOf(recordedDay)},
+                Integer.class
+        );
+        return new DiaryPage(entryId, id, text, recordedDay);
+    }
 
-      return new DiaryPage(entryId, created, diaryPageId, text, recordedDay);
-   }
+    public DiaryPage get(int id) throws EmptyResultDataAccessException {
+        DiaryPage diaryPage = jdbcTemplate.queryForObject(
+                GET_DIARY_PAGE_SQL,
+                new Object[]{id},
+                (resultSet, row) -> readDiaryPage(resultSet)
+        );
 
-   public List<DiaryPage> getAll() {
-      String sqlGetAll = "SELECT * FROM diary_page"
-            + " INNER JOIN  entry ON diaryPage.entry_id = entry.id;";
+        fetchAndSetCategories(diaryPage);
+        return diaryPage;
+    }
 
-      return jdbcTemplate.query(sqlGetAll,
-            (RowMapper<DiaryPage>) (resultSet, rowNum) -> {
-               return getDiaryPage(resultSet);
-            }
-      );
-   }
+    public List<DiaryPage> getAll(int userId) throws EmptyResultDataAccessException {
+        List<DiaryPage> diaryPages = jdbcTemplate.query(
+                GET_ALL_DIARY_PAGE_SQL,
+                new Object[]{userId},
+                (resultSet, row) -> readDiaryPage(resultSet)
+        );
 
-   //UPDATE
-   public DiaryPage update(DiaryPage diaryPage) throws DuplicateKeyException {
+        fetchAndSetCategories(diaryPages);
+        return diaryPages;
+    }
 
-      String sqlUpdateAll = "UPDATE diary_page "
-            + "SET text = ?, recorded_day = ? WHERE id = "
-            + diaryPage.getId() + ";";
-      jdbcTemplate.update(sqlUpdateAll, diaryPage.getText(), diaryPage.getRecordedDay());
+    public List<DiaryPage> getAllWithDeleted(int userId) throws EmptyResultDataAccessException {
+        List<DiaryPage> diaryPages = jdbcTemplate.query(
+                GET_ALL_WITH_DELETED_DIARY_PAGE_SQL,
+                new Object[]{userId},
+                (resultSet, row) -> readDiaryPage(resultSet)
+        );
 
-      return diaryPage;
-   }
+        fetchAndSetCategories(diaryPages);
+        return diaryPages;
+    }
 
-   //DELETE
-   public DiaryPage delete(DiaryPage diaryPage) {
-      String sqlDelete = "DELETE FROM diary_page WHERE id = "+diaryPage.getId();
-      jdbcTemplate.update(sqlDelete);
-      return diaryPage;
-   }
+    public DiaryPage update(DiaryPage diaryPage) throws DuplicateKeyException {
+        jdbcTemplate.update(UPDATE_DIARY_PAGE_SQL, diaryPage.getText(), Date.valueOf(diaryPage.getRecordedDay()), diaryPage.getId());
+        return diaryPage;
+    }
+
+    public DiaryPage delete(DiaryPage diaryPage) {
+        delete(diaryPage.getEntryId());
+        return diaryPage;
+    }
+
+    public void deleteAll() {
+        jdbcTemplate.update(DELETE_ALL_DIARY_PAGE_SQL);
+    }
+
+    private DiaryPage readDiaryPage(final ResultSet resultSet) throws SQLException {
+        int diaryPageId = resultSet.getInt("id");
+        int entryId = resultSet.getInt("entry_id");
+
+        String text = resultSet.getString("text");
+        LocalDate recordedDay = resultSet.getDate("recorded_day").toLocalDate();
+
+        return new DiaryPage(entryId, diaryPageId, text, recordedDay);
+    }
+
 }

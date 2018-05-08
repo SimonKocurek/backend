@@ -4,17 +4,28 @@ import com.jfoenix.controls.JFXButton;
 import com.jfoenix.controls.JFXComboBox;
 import com.jfoenix.controls.JFXPasswordField;
 import com.jfoenix.controls.JFXTextField;
+import com.jfoenix.effects.JFXDepthManager;
 import javafx.fxml.FXML;
 import javafx.scene.control.Label;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
-import org.chiclepad.backend.LocaleUtils;
+import org.chiclepad.backend.Dao.ChiclePadUserDao;
+import org.chiclepad.backend.Dao.DaoFactory;
+import org.chiclepad.backend.business.LocaleUtils;
+import org.chiclepad.backend.business.session.Authenticator;
+import org.chiclepad.backend.business.session.UserSessionManager;
+import org.chiclepad.backend.entity.ChiclePadUser;
+import org.chiclepad.constants.ChiclePadColor;
 import org.chiclepad.frontend.jfx.ChiclePadApp;
-import org.chiclepad.frontend.jfx.ChiclePadColor;
-import org.chiclepad.frontend.jfx.MOCKUP;
+import org.chiclepad.frontend.jfx.Popup.ChiclePadDialog;
+import org.chiclepad.frontend.jfx.Popup.UserPopup;
 
 public class SettingsSceneController {
+
+    @FXML
+    private BorderPane header;
 
     @FXML
     private HBox userArea;
@@ -38,22 +49,35 @@ public class SettingsSceneController {
     private JFXComboBox<String> languageComboBox;
 
     @FXML
-    private StackPane stackPane;
+    private StackPane dialogArea;
 
     private boolean passwordValid;
 
     private boolean verifyPasswordValid;
 
+    private ChiclePadUser loggedInUser;
+
+    private ChiclePadUserDao userDao = DaoFactory.INSTANCE.getChiclePadUserDao();
+
     @FXML
     public void initialize() {
+        initializeAdditionalStyles();
         initializeUserName();
-        initializePasswordVerifiaction();
+        initializePasswordVerification();
         initializeLanguagePicker();
     }
 
-    private void initializePasswordVerifiaction() {
+    private void initializeAdditionalStyles() {
+        JFXDepthManager.setDepth(header, 1);
+    }
+
+    private void initializePasswordVerification() {
         passwordField.textProperty().addListener((observable, oldValue, newValue) -> {
             passwordValid = !newValue.isEmpty();
+
+            verifyPasswordValid = !newValue.isEmpty() && newValue.equals(passwordField.getText());
+            setTextFieldColor(verifyPasswordField, verifyPasswordValid ? ChiclePadColor.PRIMARY : ChiclePadColor.SECONDARY);
+
             passwordButton.setDisable(!(passwordValid && verifyPasswordValid));
         });
 
@@ -65,25 +89,39 @@ public class SettingsSceneController {
     }
 
     private void initializeUserName() {
-        // TODO get real user
-        MOCKUP.USER.getName().ifPresent(name -> {
-            nameTextField.setText(name);
-            usernameLabel.setText(name);
-        });
+        int userId = UserSessionManager.INSTANCE.getCurrentUserSession().getUserId();
+        loggedInUser = userDao.get(userId);
+        loggedInUser.getName().ifPresent(name -> {
+                    usernameLabel.setText(name);
+                    nameTextField.setText(name);
+                }
+        );
 
         nameTextField.textProperty().addListener((observable, oldValue, newValue) -> {
-            MOCKUP.USER.setName(newValue);
+            this.loggedInUser.setName(newValue);
             usernameLabel.setText(newValue);
         });
-        // TODO send data
-        // nameTextField.focusColorProperty().addListener((observable, oldValue, newValue) -> SEND DATA);
+
+        nameTextField.focusedProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue) {
+                return;
+            }
+
+            this.userDao.updateDetails(this.loggedInUser);
+        });
     }
 
     private void initializeLanguagePicker() {
-        languageComboBox.getItems().addAll(LocaleUtils.getAllLocalsAsStrings());
+        languageComboBox.getItems().addAll(LocaleUtils.getReadableLocales());
         languageComboBox.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> {
-            MOCKUP.USER.setLocale(LocaleUtils.localeFromCode(newValue));
-            // TODO send
+            String localeCode = LocaleUtils.getCodeFromReadableLocale(newValue);
+            this.loggedInUser.setLocale(LocaleUtils.localeFromCode(localeCode));
+            this.userDao.updateDetails(this.loggedInUser);
+        });
+
+        loggedInUser.getLocale().ifPresent(locale -> {
+            int index = LocaleUtils.getAllLocals().indexOf(locale);
+            languageComboBox.getSelectionModel().select(index);
         });
     }
 
@@ -95,22 +133,25 @@ public class SettingsSceneController {
     @FXML
     public void changePassword() {
         String newPassword = this.passwordField.getText();
-        MOCKUP.USER.setPassword(newPassword);
+        String newHashedPassword = Authenticator.INSTANCE.hashPassword(newPassword);
+        this.loggedInUser.setPassword(newHashedPassword);
 
-        // TODO send
-        boolean passwordChanged = true;
-        if (passwordChanged) {
-            ChiclePadApp.showDialog("Success!", "Password changed", stackPane);
+        try {
+            this.userDao.updatePassword(loggedInUser);
+            ChiclePadDialog.show("Success!", "Password changed", dialogArea);
+
             passwordField.setText("");
             verifyPasswordField.setText("");
-        } else {
-            ChiclePadApp.showDialog("Error!", "Password failed to change", stackPane);
+
+        } catch (Exception e) {
+            ChiclePadDialog.show("Error!", "Password failed to change", dialogArea);
+            passwordButton.setDisable(true);
         }
     }
 
     @FXML
     public void userClick() {
-        HomeSceneController.showUserPopup(userArea);
+        UserPopup.showUnderParent(userArea);
     }
 
     @FXML

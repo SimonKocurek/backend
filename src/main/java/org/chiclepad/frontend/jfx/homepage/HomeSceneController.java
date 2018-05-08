@@ -1,27 +1,34 @@
 package org.chiclepad.frontend.jfx.homepage;
 
-import com.jfoenix.controls.JFXButton;
-import com.jfoenix.controls.JFXCheckBox;
 import com.jfoenix.controls.JFXListView;
-import com.jfoenix.controls.JFXPopup;
+import com.jfoenix.effects.JFXDepthManager;
 import de.jensd.fx.glyphs.fontawesome.FontAwesomeIcon;
-import de.jensd.fx.glyphs.fontawesome.FontAwesomeIconName;
 import javafx.fxml.FXML;
-import javafx.geometry.Insets;
-import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import org.chiclepad.backend.Dao.*;
+import org.chiclepad.backend.business.session.UserSessionManager;
 import org.chiclepad.backend.entity.Category;
+import org.chiclepad.backend.entity.ChiclePadUser;
+import org.chiclepad.backend.entity.Todo;
+import org.chiclepad.constants.ChiclePadColor;
 import org.chiclepad.frontend.jfx.ChiclePadApp;
-import org.chiclepad.frontend.jfx.ChiclePadColor;
-import org.chiclepad.frontend.jfx.MOCKUP;
-import org.chiclepad.frontend.jfx.startup.LoginSceneController;
+import org.chiclepad.frontend.jfx.Popup.CategoryPopup;
+import org.chiclepad.frontend.jfx.Popup.UserPopup;
+import org.chiclepad.frontend.jfx.model.CategoryListModel;
+import org.chiclepad.frontend.jfx.model.NotificationsListModel;
+import org.chiclepad.frontend.jfx.model.UpcomingListModel;
 
+import java.util.Comparator;
 import java.util.List;
 
 public class HomeSceneController {
+
+    @FXML
+    private BorderPane header;
 
     @FXML
     private HBox userArea;
@@ -33,28 +40,112 @@ public class HomeSceneController {
     private TextField searchTextField;
 
     @FXML
-    private JFXListView<JFXCheckBox> categories;
+    private JFXListView<String> upcomingListView;
 
-    private String filter = "";
+    @FXML
+    private JFXListView<String> notificationsListView;
+
+    @FXML
+    private VBox categoryList;
+
+    @FXML
+    private VBox categoriesRippler;
+
+    @FXML
+    private FontAwesomeIcon addCategoryIcon;
+
+    private UpcomingListModel upcoming;
+
+    private NotificationsListModel notifications;
+
+    private CategoryListModel categories;
+
+    private ChiclePadUser loggedInUser;
+
+    private ChiclePadUserDao userDao = DaoFactory.INSTANCE.getChiclePadUserDao();
+
+    private CategoryDao categoryDao = DaoFactory.INSTANCE.getCategoryDao();
+
+    private TodoDao todoDao = DaoFactory.INSTANCE.getTodoDao();
+
+    private NoteDao noteDao = DaoFactory.INSTANCE.getNoteDao();
+
+    private GoalDao goalDao = DaoFactory.INSTANCE.getGoalDao();
 
     @FXML
     public void initialize() {
-        // TODO get real user
-        MOCKUP.USER.getName().ifPresent(name -> usernameLabel.setText(name));
+        initializeAdditionalStyles();
+        initializeUser();
+        initializeUpcoming();
+        initializeNotifications();
+        initializeCategories();
 
-        // TODO get real categories
-        MOCKUP.CATEGORIES.forEach(category -> HomeSceneController.addCategory(category, categories.getItems()));
+        categories.subscribeListModel(notifications);
+        categories.subscribeListModel(upcoming);
+    }
+
+    private void initializeAdditionalStyles() {
+        JFXDepthManager.setDepth(header, 1);
+
+        addCategoryIcon.setOnMouseEntered(event -> addCategoryIcon.setFill(ChiclePadColor.PRIMARY));
+        addCategoryIcon.setOnMouseExited(event -> addCategoryIcon.setFill(ChiclePadColor.BLACK));
+
+        upcomingListView.setExpanded(true);
+        notificationsListView.setExpanded(true);
+    }
+
+    private void initializeUser() {
+        int userId = UserSessionManager.INSTANCE.getCurrentUserSession().getUserId();
+        loggedInUser = userDao.get(userId);
+        loggedInUser.getName().ifPresent(name -> usernameLabel.setText(name));
+    }
+
+    private void initializeCategories() {
+        this.categories = new CategoryListModel(categoryList, categoriesRippler);
+        List<Category> categories = this.categoryDao.getAll(this.loggedInUser.getId());
+        categories.forEach(category -> this.categories.add(category));
+    }
+
+    private void initializeUpcoming() {
+        upcoming = new UpcomingListModel(upcomingListView);
+        todoDao.getAll(loggedInUser.getId()).stream()
+                .sorted(Comparator.comparing(Todo::getDeadline))
+                .forEach(todo -> upcoming.add(todo));
+    }
+
+    private void initializeNotifications() {
+        notifications = new NotificationsListModel(notificationsListView);
+
+        noteDao.getAll(loggedInUser.getId()).stream()
+                .filter(note -> note.getReminderTime().isPresent())
+                .sorted(Comparator.comparing(note2 -> note2.getReminderTime().get()))
+                .forEach(note -> notifications.addNote(note));
+
+        goalDao.getAllGoalsNotCompletedToday(loggedInUser.getId())
+                .forEach(goal -> notifications.addGoal(goal));
+    }
+
+    @FXML
+    public void clearScene() {
+        upcoming.clearUpcoming();
+        notifications.clearNotifications();
     }
 
     @FXML
     public void refreshFilter() {
-        filter = searchTextField.getText();
-        // TODO reload
+        String filter = searchTextField.getText();
+        upcoming.filterByText(filter);
+        notifications.filterByText(filter);
+    }
+
+    @FXML
+    public void addCategory() {
+        CategoryPopup.showAddCategoryUnderParent(addCategoryIcon, categories);
     }
 
     @FXML
     public void userClick() {
-        HomeSceneController.showUserPopup(userArea);
+        UserPopup.showUnderParent(userArea);
     }
 
     @FXML
@@ -75,70 +166,6 @@ public class HomeSceneController {
     @FXML
     public void switchToNoteScene() {
         ChiclePadApp.switchScene(new NoteSceneController(), "homepage/noteScene.fxml");
-    }
-
-
-    public static void showUserPopup(Node parent) {
-        JFXPopup popup = new JFXPopup();
-        VBox layout = createPopupLayout(popup);
-        popup.setPopupContent(layout);
-        popup.show(parent, JFXPopup.PopupVPosition.TOP, JFXPopup.PopupHPosition.RIGHT, 0, 40);
-    }
-
-    private static VBox createPopupLayout(JFXPopup popup) {
-        JFXButton settingsButton = createSettingsButton(popup);
-        JFXButton logoutButton = createLogoutButton(popup);
-
-        VBox layout = new VBox(settingsButton, logoutButton);
-        layout.setPadding(new Insets(15, 10, 15, 10));
-        layout.setSpacing(10);
-        layout.setStyle("-fx-border-color: #e0e0e0");
-
-        return layout;
-    }
-
-    private static JFXButton createSettingsButton(JFXPopup parent) {
-        JFXButton settingsButton = new JFXButton("Settings");
-        settingsButton.setPadding(new Insets(10, 10, 10, 10));
-
-        FontAwesomeIcon settingsIcon = new FontAwesomeIcon();
-        settingsIcon.setIcon(FontAwesomeIconName.GEAR);
-        settingsButton.setGraphic(settingsIcon);
-
-        settingsButton.setOnAction(event -> {
-            ChiclePadApp.switchScene(new SettingsSceneController(), "homepage/settingsScene.fxml");
-            parent.hide();
-        });
-
-        return settingsButton;
-    }
-
-    private static JFXButton createLogoutButton(JFXPopup parent) {
-        JFXButton logoutButton = new JFXButton("Log Out");
-        logoutButton.setPadding(new Insets(10, 10, 10, 10));
-
-        FontAwesomeIcon logoutIcon = new FontAwesomeIcon();
-        logoutIcon.setIcon(FontAwesomeIconName.SIGN_OUT);
-        logoutButton.setGraphic(logoutIcon);
-
-        logoutButton.setOnAction(event -> {
-            ChiclePadApp.switchScene(new LoginSceneController(), "startup/loginScene.fxml");
-            parent.hide();
-        });
-
-        return logoutButton;
-    }
-
-    public static void addCategory(Category category, List<JFXCheckBox> categoryItems) {
-        JFXCheckBox line = new JFXCheckBox();
-        line.setText(category.getName());
-        line.setCheckedColor(ChiclePadColor.PRIMARY);
-
-        FontAwesomeIcon icon = new FontAwesomeIcon();
-        icon.setIconName(category.getIcon());
-        line.setGraphic(icon);
-
-        categoryItems.add(line);
     }
 
 }

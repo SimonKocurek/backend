@@ -1,7 +1,5 @@
 package org.chiclepad.backend.entity;
 
-import org.springframework.lang.NonNull;
-
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -39,14 +37,8 @@ public class Todo extends Entry {
     /**
      * Basic constructor
      */
-    public Todo(int entryId,
-                LocalDateTime created,
-                List<Category> categories,
-                int id,
-                String description,
-                LocalDateTime deadline,
-                int priority) {
-        super(entryId, created, categories);
+    public Todo(int entryId, List<Category> categories, int id, String description, LocalDateTime deadline, int priority) {
+        super(entryId, categories);
         this.id = id;
         this.description = description;
         this.deadline = deadline;
@@ -57,32 +49,21 @@ public class Todo extends Entry {
      * Constructor with soft deadline user set himself for task completion
      */
     public Todo(int entryId,
-                LocalDateTime created,
                 List<Category> categories,
                 int id,
                 String description,
                 LocalDateTime deadline,
-                @NonNull LocalDateTime softDeadline,
+                LocalDateTime softDeadline,
                 int priority) {
-        this(entryId, created, categories, id, description, deadline, priority);
-
-        if (softDeadline == null) {
-            throw new RuntimeException("Provided To-do entry (" + id + " " + description + ") soft deadline can't be null");
-        }
-
-        this.softDeadline = Optional.of(softDeadline);
+        this(entryId, categories, id, description, deadline, priority);
+        this.softDeadline = Optional.ofNullable(softDeadline);
     }
 
     /**
      * Basic constructor
      */
-    public Todo(int entryId,
-                LocalDateTime created,
-                int id,
-                String description,
-                LocalDateTime deadline,
-                int priority) {
-        super(entryId, created);
+    public Todo(int entryId, int id, String description, LocalDateTime deadline, int priority) {
+        super(entryId);
         this.id = id;
         this.description = description;
         this.deadline = deadline;
@@ -93,19 +74,13 @@ public class Todo extends Entry {
      * Constructor with soft deadline user set himself for task completion
      */
     public Todo(int entryId,
-                LocalDateTime created,
                 int id,
                 String description,
                 LocalDateTime deadline,
-                @NonNull LocalDateTime softDeadline,
+                LocalDateTime softDeadline,
                 int priority) {
-        this(entryId, created, id, description, deadline, priority);
-
-        if (softDeadline == null) {
-            throw new RuntimeException("Provided To-do entry (" + id + " " + description + ") soft deadline can't be null");
-        }
-
-        this.softDeadline = Optional.of(softDeadline);
+        this(entryId, id, description, deadline, priority);
+        this.softDeadline = Optional.ofNullable(softDeadline);
     }
 
     /**
@@ -153,12 +128,8 @@ public class Todo extends Entry {
     /**
      * @param softDeadline New deadline user set for himself
      */
-    public void setSoftDeadline(@NonNull LocalDateTime softDeadline) {
-        if (softDeadline == null) {
-            throw new RuntimeException("Provided To-do entry (" + id + " " + description + ") soft deadline can't be null");
-        }
-
-        this.softDeadline = Optional.of(softDeadline);
+    public void setSoftDeadline(LocalDateTime softDeadline) {
+        this.softDeadline = Optional.ofNullable(softDeadline);
     }
 
     /**

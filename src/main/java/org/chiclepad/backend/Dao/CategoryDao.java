@@ -4,78 +4,93 @@ import org.chiclepad.backend.entity.Category;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 
 public class CategoryDao {
-   // Data source
-   private JdbcTemplate jdbcTemplate;
 
-   public CategoryDao(JdbcTemplate jdbcTemplate) {
-      this.jdbcTemplate = jdbcTemplate;
-   }
+    private final String CREATE_CATEGORY_SQL = "INSERT INTO category (name, icon, color, user_id) " +
+            "VALUES (?, ?, ?, ?) " +
+            "RETURNING id;";
 
-   //CREATE
-   public Category create(String name, String icon, String color) throws DuplicateKeyException {
+    private final String GET_CATEGORY_SQL = "SELECT * " +
+            "FROM category " +
+            "WHERE id = ?;";
 
-      String sqlInsert = "INSERT INTO category(id,name, icon, color)"
-            + " VALUES(DEFAULT ,?,?,?) RETURNING id ;";
+    private final String GET_ALL_CATEGORY_SQL = "SELECT * " +
+            "FROM category " +
+            "WHERE user_id = ?;";
 
-      Object id = jdbcTemplate.queryForObject(sqlInsert, new Object[] { name, icon, color }, Integer.class);
-      return id == null ? null : new Category((int) id, name, icon, color);
-   }
+    private final String UPDATE_CATEGORY_SQL = "UPDATE category " +
+            "SET name = ?, icon = ?, color = ? " +
+            "WHERE id = ?;";
 
-   //READ
-   public Category get(int id) throws EmptyResultDataAccessException {
-      String sqlGet = "SELECT * FROM category"
-            + " WHERE category.id =" + id + ";";
+    private final String DELETE_CATEGORY_SQL = "DELETE " +
+            "FROM category " +
+            "WHERE id = ?;";
 
-      return jdbcTemplate.queryForObject(sqlGet,
-            (RowMapper<Category>) (ResultSet resultSet, int rowNum) -> {
-               return getCategory(resultSet);
-            }
-      );
-   }
+    private final String DELETE_ALL_CATEGORY_SQL = "DELETE FROM category;";
 
-   private Category getCategory(final ResultSet resultSet) throws SQLException {
-      int userId = resultSet.getInt("id");
-      String name = resultSet.getString("name");
-      String icon = resultSet.getString("icon");
-      String color = resultSet.getString("color");
+    private JdbcTemplate jdbcTemplate;
 
-      return new Category(userId, name, icon, color);
-   }
+    CategoryDao(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+    }
 
-   public List<Category> getAll() {
-      String sqlGetAll = "SELECT * FROM category"
-            + " LEFT OUTER JOIN category_details ON category_details.user_id = category.id;";
+    public Category create(int userId, String name, String icon, String color) throws DuplicateKeyException {
+        Object id = jdbcTemplate.queryForObject(
+                CREATE_CATEGORY_SQL,
+                new Object[]{name, icon, color, userId},
+                Integer.class
+        );
+        return new Category((int) id, name, icon, color);
+    }
 
-      return jdbcTemplate.query(sqlGetAll,
-            (RowMapper<Category>) (resultSet, rowNum) -> {
-               return getCategory(resultSet);
-            }
-      );
-   }
+    public Category get(int id) throws EmptyResultDataAccessException {
+        return jdbcTemplate.queryForObject(
+                GET_CATEGORY_SQL,
+                new Object[]{id},
+                (resultSet, row) -> readResult(resultSet)
+        );
+    }
 
-   //UPDATE
-   public Category update(Category category) throws DuplicateKeyException {
+    public List<Category> getAll(int userId) {
+        return jdbcTemplate.query(
+                GET_ALL_CATEGORY_SQL,
+                new Object[]{userId},
+                (resultSet, rowNum) -> readResult(resultSet)
+        );
+    }
 
-      String sqlUpdateAll= "UPDATE category "
-            + "SET name = ?, icon = ?, color = ? WHERE id = "
-            + category.getId() + ";";
-      jdbcTemplate.update(sqlUpdateAll, category.getName(), category.getIcon(), category.getColor());
+    public Category update(Category category) throws DuplicateKeyException {
+        jdbcTemplate.update(
+                UPDATE_CATEGORY_SQL,
+                category.getName(),
+                category.getIcon(),
+                category.getColor(),
+                category.getId()
+        );
+        return category;
+    }
 
-      return category;
-   }
+    public Category delete(Category category) {
+        jdbcTemplate.update(DELETE_CATEGORY_SQL, category.getId());
+        return category;
+    }
 
-   //DELETE
-   public Category delete(Category category) {
-      String sqlDelete = "DELETE  FROM category WHERE  id = " + category.getId();
-      jdbcTemplate.update(sqlDelete);
-      return category;
-   }
+    public void deleteAll() {
+        jdbcTemplate.update(DELETE_ALL_CATEGORY_SQL);
+    }
+
+    private Category readResult(final ResultSet resultSet) throws SQLException {
+        int userId = resultSet.getInt("id");
+        String name = resultSet.getString("name");
+        String icon = resultSet.getString("icon");
+        String color = resultSet.getString("color");
+
+        return new Category(userId, name, icon, color);
+    }
 
 }
